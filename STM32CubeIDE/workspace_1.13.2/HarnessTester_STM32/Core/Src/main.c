@@ -32,6 +32,9 @@
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
+#define ADS1115_ADDRESS 0x48 << 1  // Address of the ADS1115 (shifted for HAL library)
+#define ADS1115_POINTER_CONVERSION 0x00
+#define ADS1115_POINTER_CONFIG 0x01
 /* USER CODE BEGIN PD */
 
 /* USER CODE END PD */
@@ -56,6 +59,10 @@ static void MX_I2C1_Init(void);
 uint8_t Binary4Bit(uint8_t num);
 void selectMux(uint8_t type, uint8_t IO, uint8_t bin_pin);
 void mux(uint8_t pin1, uint8_t pin2, uint8_t IO);
+
+void ADS1115_WriteConfig(uint16_t config);
+uint16_t ADS1115_ReadConversion();
+void ReadADS1115_Channel(uint8_t channel);
 
 /* USER CODE END PFP */
 
@@ -140,6 +147,11 @@ int main(void)
 	 //Connections:  O_X7 -> I_X7 (X6-X7 is still not working, trying X7)
 	 mux(0b0110, 0b0000, 1); //X6
 	 mux(0b0110, 0b0000, 0); //X6
+
+	 // Test reading ADS1115 channels
+	 for (uint8_t i = 0; i < 3; i++) {
+	   ReadADS1115_Channel(i);
+	 }
 
 
 	 GPIO_PinState pinState = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_3); //Read input
@@ -387,6 +399,74 @@ void selectMux(uint8_t type, uint8_t IO, uint8_t bin_pin) {
         }
     }
 }
+
+void ADS1115_WriteConfig(uint16_t config)
+{
+  uint8_t configData[3];
+  configData[0] = ADS1115_POINTER_CONFIG;
+  configData[1] = (uint8_t)(config >> 8);   // MSB
+  configData[2] = (uint8_t)(config & 0xFF); // LSB
+
+  if (HAL_I2C_Master_Transmit(&hi2c1, ADS1115_ADDRESS, configData, 3, HAL_MAX_DELAY) != HAL_OK)
+  {
+    // Transmission Error
+    Error_Handler();
+  }
+}
+
+uint16_t ADS1115_ReadConversion()
+{
+  uint8_t convData[2];
+  uint16_t value;
+
+  if (HAL_I2C_Master_Transmit(&hi2c1, ADS1115_ADDRESS, ADS1115_POINTER_CONVERSION, 1, HAL_MAX_DELAY) != HAL_OK)
+  {
+    // Transmission Error
+    Error_Handler();
+  }
+
+  if (HAL_I2C_Master_Receive(&hi2c1, ADS1115_ADDRESS, convData, 2, HAL_MAX_DELAY) != HAL_OK)
+  {
+    // Reception Error
+    Error_Handler();
+  }
+
+  value = (convData[0] << 8) | convData[1];
+  return value;
+}
+
+void ReadADS1115_Channel(uint8_t channel)
+{
+  uint16_t config = 0x8583; // Single-ended, FSR ±4.096V, 128SPS
+  // Set MUX for the channel
+  switch (channel)
+  {
+  case 0:
+    config |= (0x4000); // AIN0
+    break;
+  case 1:
+    config |= (0x5000); // AIN1
+    break;
+  case 2:
+    config |= (0x6000); // AIN2
+    break;
+  case 3:
+    config |= (0x7000); // AIN3
+    break;
+  default:
+    return;
+  }
+
+  ADS1115_WriteConfig(config);
+
+  HAL_Delay(10); // Wait for conversion to complete
+
+  uint16_t value = ADS1115_ReadConversion();
+  float voltage = (value * 4.096) / 32767.0;
+
+  //printf("Channel %d: %f V\n", channel, voltage);
+}
+
 
 /* USER CODE END 4 */
 
