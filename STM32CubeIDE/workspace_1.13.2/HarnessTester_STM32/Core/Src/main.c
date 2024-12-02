@@ -20,6 +20,8 @@
 #include "main.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdbool.h>
+
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -32,9 +34,17 @@
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
-#define ADS1115_ADDRESS 0x48 << 1  // Address of the ADS1115 (shifted for HAL library)
+#define ADS1115_ADDRESS 0x48 //<< 1  // Address of the ADS1115 (shifted for HAL library)
 #define ADS1115_POINTER_CONVERSION 0x00
 #define ADS1115_POINTER_CONFIG 0x01
+
+uint8_t ADSwrite[3];
+uint8_t ADSread[2];
+int16_t reading;
+static float voltage[4];
+const float voltageConv = 0.256 / 32768.0;  // Update this based on the FSR (prev 6.114)
+
+
 /* USER CODE BEGIN PD */
 
 /* USER CODE END PD */
@@ -62,7 +72,7 @@ void mux(uint8_t pin1, uint8_t pin2, uint8_t IO);
 
 void ADS1115_WriteConfig(uint16_t config);
 uint16_t ADS1115_ReadConversion();
-void ReadADS1115_Channel(uint8_t channel);
+float* contDetect();
 
 /* USER CODE END PFP */
 
@@ -101,6 +111,23 @@ int main(void)
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
   //setup code
+  // Initialize Comparator with COMP_LAT = 0b0 and COMP_QUE = 0b11
+//   COMP_HandleTypeDef hcomp;
+//   hcomp.Instance = COMP1; // Example using COMP1
+//   hcomp.Init.InvertingInput = COMP_INVERTINGINPUT_IO1; // Adjust according to your setup
+//   hcomp.Init.NonInvertingInput = COMP_NONINVERTINGINPUT_IO1; // Adjust according to your setup
+//   hcomp.Init.OutputPol = COMP_OUTPUTPOL_NONINVERTED;
+//   hcomp.Init.Mode = COMP_POWERMODE_HIGHSPEED;
+//   hcomp.Init.WindowMode = COMP_WINDOWMODE_DISABLE;
+//   hcomp.Init.TriggerMode = COMP_TRIGGERMODE_NONE; // No interrupt generation
+//
+//   HAL_COMP_Init(&hcomp);
+//
+//   __HAL_COMP_COMP_LAT_RESET(hcomp.Instance); // Set COMP_LAT to 0b0
+//   __HAL_COMP_COMP_QUE_SET(hcomp.Instance, 0b11); // Set COMP_QUE to 0b11
+//
+//   HAL_COMP_Start(&hcomp); // Start comparator
+
 
 
 
@@ -118,6 +145,18 @@ int main(void)
   //Check for Input pin 2 (ABC High)
   //Select mux pin, turn on output
   //Check each pin and populate array
+
+//	 COM_InitTypeDef comlog;
+//
+//	 comlog.BaudRate = 115200;
+//	 comlog.WordLength = COM_WORDLENGTH_8B;
+//	 comlog.StopBits = COM_STOPBITS_1;
+//	 comlog.Parity = COM_PARITY_NONE;
+//	 comlog.HwFlowCtl = COM_HWCONTROL_NONE;
+//
+////	 BSP_COM_Init(COM1, &comlog);
+//
+//	 printf("Hello World!");
 	 HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2, GPIO_PIN_SET); //output pin
 
 	 //Current source for ADC // doing to see if this changes voltage for continuity check
@@ -131,30 +170,36 @@ int main(void)
 
 	 //TESTCODE
 
-	 //HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, GPIO_PIN_SET); //D
-	 //HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_SET); //C working
-	 //HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET); //B working
-	 //HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_SET); //A
-	 //HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET); //D
-	 //HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET); //C working
-	 //HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET); //B working
-	 //HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET); //A
+//	 HAL_GPIO_WritePin(GPIOA, GPIO_PIN_11, GPIO_PIN_SET); //D
+//	 HAL_GPIO_WritePin(GPIOA, GPIO_PIN_10, GPIO_PIN_SET); //C working (Input)
+//	 HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET); //B working (Input)
+//	 HAL_GPIO_WritePin(GPIOA, GPIO_PIN_8, GPIO_PIN_SET); //A (Input)
+//	 HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET); //D
+//	 HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET); //C working
+//	 HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET); //B working
+//	 HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET); //A
 
 	 //selectMux(1,0, 0b0010); //Mux 0, X1, Output
 	 //mux(0b0010, 0b0000, 0);
 
 	 //Small Test 01 - Mobo Only (Single connect)
 	 //Connections:  O_X7 -> I_X7 (X6-X7 is still not working, trying X7)
+	 float* cont_array[15];
+	 bool yah = false;
 	 mux(0b0110, 0b0000, 1); //X6
+	 HAL_Delay(20);
 	 mux(0b0110, 0b0000, 0); //X6
-
 	 // Test reading ADS1115 channels
-	 for (uint8_t i = 0; i < 3; i++) {
-	   ReadADS1115_Channel(i);
+	 HAL_Delay(100);
+     cont_array[0] = contDetect();
+
+	 for (uint8_t i = 0; i < 15; i++) {
+	   mux(Binary4Bit(i), 0b0000, 1);
+	   cont_array[i] = contDetect();
 	 }
 
 
-	 GPIO_PinState pinState = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_3); //Read input
+	 //GPIO_PinState pinState = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_3); //Read input
 	 //mux(0b1110, 0b0000, 0); // Test no connect
 	 //pinState = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_3); //Read input
 
@@ -240,33 +285,35 @@ static void MX_I2C1_Init(void)
   /* USER CODE BEGIN I2C1_Init 1 */
 
   /* USER CODE END I2C1_Init 1 */
-  hi2c1.Instance = I2C1;
-  hi2c1.Init.Timing = 0x2000090E;
-  hi2c1.Init.OwnAddress1 = 0;
-  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-  hi2c1.Init.OwnAddress2 = 0;
-  hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
-  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
-  {
-    Error_Handler();
-  }
+	  hi2c1.Instance = I2C1;
+	  hi2c1.Init.Timing = 0x2000090E;
+	  hi2c1.Init.OwnAddress1 = 0;
+	  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+	  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+	  hi2c1.Init.OwnAddress2 = 0;
+	  hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+	  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+	  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+	  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+	  {
+		Error_Handler();
+	  }
 
-  /** Configure Analogue filter
-  */
-  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
-  {
-    Error_Handler();
-  }
+	  /** Configure Analogue filter
+	  */
+	  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+	  {
+		Error_Handler();
+	  }
 
-  /** Configure Digital filter
-  */
-  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
-  {
-    Error_Handler();
-  }
+	  /** Configure Digital filter
+	  */
+	  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
+	  {
+		Error_Handler();
+	  }
+
+
   /* USER CODE BEGIN I2C1_Init 2 */
 
   /* USER CODE END I2C1_Init 2 */
@@ -291,6 +338,22 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
+//  COMP_HandleTypeDef hcomp;
+//   hcomp.Instance = COMP1; // Example using COMP1
+//   hcomp.Init.InvertingInput = COMP_INVERTINGINPUT_IO1; // Adjust according to your setup
+//   hcomp.Init.NonInvertingInput = COMP_NONINVERTINGINPUT_IO1; // Adjust according to your setup
+//   hcomp.Init.OutputPol = COMP_OUTPUTPOL_NONINVERTED;
+//   hcomp.Init.Mode = COMP_POWERMODE_HIGHSPEED;
+//   hcomp.Init.WindowMode = COMP_WINDOWMODE_DISABLE;
+//   hcomp.Init.TriggerMode = COMP_TRIGGERMODE_NONE; // No interrupt generation
+//
+//   HAL_COMP_Init(&hcomp);
+//
+//   __HAL_COMP_COMP_LAT_RESET(hcomp.Instance); // Set COMP_LAT to 0b0
+//   __HAL_COMP_COMP_QUE_SET(hcomp.Instance, 0b11); // Set COMP_QUE to 0b11
+//
+//   HAL_COMP_Start(&hcomp); // Start comparator
+
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2|GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_6
                           |GPIO_PIN_7|GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10
                           |GPIO_PIN_11, GPIO_PIN_RESET);
@@ -406,8 +469,9 @@ void ADS1115_WriteConfig(uint16_t config)
   configData[0] = ADS1115_POINTER_CONFIG;
   configData[1] = (uint8_t)(config >> 8);   // MSB
   configData[2] = (uint8_t)(config & 0xFF); // LSB
-
-  if (HAL_I2C_Master_Transmit(&hi2c1, ADS1115_ADDRESS, configData, 3, HAL_MAX_DELAY) != HAL_OK)
+  HAL_StatusTypeDef result;
+  result = HAL_I2C_Master_Transmit(&hi2c1, ADS1115_ADDRESS << 1, configData, 3, HAL_MAX_DELAY);
+  if (result)
   {
     // Transmission Error
     Error_Handler();
@@ -419,13 +483,13 @@ uint16_t ADS1115_ReadConversion()
   uint8_t convData[2];
   uint16_t value;
 
-  if (HAL_I2C_Master_Transmit(&hi2c1, ADS1115_ADDRESS, ADS1115_POINTER_CONVERSION, 1, HAL_MAX_DELAY) != HAL_OK)
+  if (HAL_I2C_Master_Transmit(&hi2c1, ADS1115_ADDRESS << 1, ADS1115_POINTER_CONVERSION, 1, HAL_MAX_DELAY) != HAL_OK)
   {
     // Transmission Error
     Error_Handler();
   }
 
-  if (HAL_I2C_Master_Receive(&hi2c1, ADS1115_ADDRESS, convData, 2, HAL_MAX_DELAY) != HAL_OK)
+  if (HAL_I2C_Master_Receive(&hi2c1, ADS1115_ADDRESS << 1, convData, 2, HAL_MAX_DELAY) != HAL_OK)
   {
     // Reception Error
     Error_Handler();
@@ -435,37 +499,49 @@ uint16_t ADS1115_ReadConversion()
   return value;
 }
 
-void ReadADS1115_Channel(uint8_t channel)
-{
-  uint16_t config = 0x8583; // Single-ended, FSR ±4.096V, 128SPS
-  // Set MUX for the channel
-  switch (channel)
-  {
-  case 0:
-    config |= (0x4000); // AIN0
-    break;
-  case 1:
-    config |= (0x5000); // AIN1
-    break;
-  case 2:
-    config |= (0x6000); // AIN2
-    break;
-  case 3:
-    config |= (0x7000); // AIN3
-    break;
-  default:
-    return;
-  }
+float* contDetect() {
+	for(int i=0; i< 4; i++){
+				ADSwrite[0] = 0x01;
 
-  ADS1115_WriteConfig(config);
+				switch(i){
+					case(0):
+						ADSwrite[1] = 0xCD; //11001101 #bits 1-3 (110) correspond to PGA gain of 0.256V
+					break;
+					case(1):
+						ADSwrite[1] = 0xDD; //11011101
+					break;
+					case(2):
+						ADSwrite[1] = 0xED;
+					break;
+					case(3):
+						ADSwrite[1] = 0xFD;
+					break;
+				}
 
-  HAL_Delay(10); // Wait for conversion to complete
+				ADSwrite[2] = 0x83; //10000011 LSB
 
-  uint16_t value = ADS1115_ReadConversion();
-  float voltage = (value * 4.096) / 32767.0;
+				 HAL_I2C_Master_Transmit(&hi2c1, ADS1115_ADDRESS << 1, ADSwrite, 3, 100);
+
+				// Wait for conversion to complete by polling OS bit
+				uint8_t configRegister[2];
+				do {
+					HAL_I2C_Mem_Read(&hi2c1, ADS1115_ADDRESS << 1, 0x01, I2C_MEMADD_SIZE_8BIT, configRegister, 2, 100);
+				} while ((configRegister[0] & 0x80) == 0);
+
+				// Read conversion results
+				HAL_I2C_Mem_Read(&hi2c1, ADS1115_ADDRESS << 1, 0x00, I2C_MEMADD_SIZE_8BIT, ADSread, 2, 100);
+				reading = (ADSread[0] << 8) | ADSread[1];
+				if(reading < 0) {
+					reading = 0;
+				}
+				voltage[i] = reading * voltageConv;
+
+
+	}
+	return voltage;
+}
 
   //printf("Channel %d: %f V\n", channel, voltage);
-}
 
 
 /* USER CODE END 4 */
@@ -477,7 +553,7 @@ void ReadADS1115_Channel(uint8_t channel)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
+  /* User can add his own implementation to report the HAL err	or return state */
   __disable_irq();
   while (1)
   {
